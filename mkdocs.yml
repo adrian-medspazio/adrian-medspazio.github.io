@@ -1,0 +1,18 @@
+site_name: AgoraCare Documentation
+site_description: Documentación técnica de AgoraCare
+site_author: Adrian
+
+theme:
+  name: mkdocs
+  locale: es
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - fenced_code
+
