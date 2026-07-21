@@ -1,10 +1,12 @@
 site_name: AgoraCare Documentation
 site_description: Documentación técnica de AgoraCare
 site_author: Adrian
+site_url: https://adrian-medspazio.github.io/agoracareDocs/
 
 theme:
   name: readthedocs
   locale: es
+  favicon: img/favicon.svg
 
 plugins:
   - search
