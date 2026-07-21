@@ -1,7 +1,6 @@
 site_name: AgoraCare Documentation
 site_description: Documentación técnica de AgoraCare
 site_author: Adrian
-site_url: https://tu-usuario.github.io/sphinxDocs
 
 theme:
   name: readthedocs
