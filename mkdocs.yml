@@ -5,7 +5,6 @@ site_author: Adrian
 theme:
   name: readthedocs
   locale: es
-  favicon: img/favicon.svg
 
 plugins:
   - search
