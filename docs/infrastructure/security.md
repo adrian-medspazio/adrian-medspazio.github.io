@@ -4,77 +4,29 @@ title: Seguridad (KMS, Secrets Manager, IAM, Security Groups)
 
 # Seguridad — KMS, Secrets Manager, IAM, Security Groups
 
-**Servicios usados:** KMS, Secrets Manager, IAM, EC2 → Security Groups
-
 ---
 
 ## KMS: 3 CMKs (dev, staging, prod)
 
-```
-AWS Console → KMS → Customer managed keys → Create key (×3)
+| Alias | Tipo | Uso | Rotación anual |
+|-------|------|-----|----------------|
+| `alias/sphinx-dev` | Symmetric | Encrypt and Decrypt | ✅ Enabled |
+| `alias/sphinx-staging` | Symmetric | Encrypt and Decrypt | ✅ Enabled |
+| `alias/sphinx-prod` | Symmetric | Encrypt and Decrypt | ✅ Enabled |
 
-  Key 1:
-    Key type: Symmetric
-    Key usage: Encrypt and decrypt
-    → Next
-    Alias: alias/sphinx-dev
-    Description: CMK for Sphinx dev environment
-    → Next
-    Key administrators: (tu rol/user)
-    → Next
-    Key users: (tu rol/user) + luego agregaremos ecsTaskExecutionRole-sphinx
-    → Next
-    → Finish
+> Key administrators: tu rol/user. Key users inicial: tu rol/user (luego agregar `ecsTaskExecutionRole-sphinx` y `ec2InstanceProfile-sphinx`).
 
-  Key 2:
-    Alias: alias/sphinx-staging
-    Description: CMK for Sphinx staging environment
-    (mismos admins/users)
-
-  Key 3:
-    Alias: alias/sphinx-prod
-    Description: CMK for Sphinx production environment
-    (mismos admins/users)
-```
-
-**Habilitar rotación automática (anual) en las 3:**
-```
-KMS → Customer managed keys → Click key ID → Key rotation → Edit → ✅ Automatically rotate this KMS key every year → Save changes
-```
-
-**Verificación:**
-- 3 keys con alias `alias/sphinx-dev`, `alias/sphinx-staging`, `alias/sphinx-prod`
-- Rotation: `Enabled` en las 3
+**Verificación:** 3 keys con alias `alias/sphinx-dev`, `alias/sphinx-staging`, `alias/sphinx-prod`. Rotation: `Enabled` en las 3.
 
 ---
 
 ## Secrets Manager: Estructura de secretos
 
-**Crear placeholder inicial (se poblará por servicio):**
-
-```
-AWS Console → Secrets Manager → Store a new secret (×3)
-
-  Secret 1:
-    Secret type: Other type of secret
-    Key/value pairs:
-      dummy: "placeholder"
-    → Next
-    Secret name: sphinx/dev/placeholder
-    Description: Placeholder for dev secrets structure
-    KMS key: alias/sphinx-dev
-    → Next → Store
-
-  Secret 2:
-    Secret name: sphinx/staging/placeholder
-    KMS key: alias/sphinx-staging
-    → Store
-
-  Secret 3:
-    Secret name: sphinx/prod/placeholder
-    KMS key: alias/sphinx-prod
-    → Store
-```
+| Nombre | KMS Key | Tipo | Contenido inicial |
+|--------|---------|------|-------------------|
+| `sphinx/dev/placeholder` | `alias/sphinx-dev` | Other type of secret | `{ "dummy": "placeholder" }` |
+| `sphinx/staging/placeholder` | `alias/sphinx-staging` | Other type of secret | `{ "dummy": "placeholder" }` |
+| `sphinx/prod/placeholder` | `alias/sphinx-prod` | Other type of secret | `{ "dummy": "placeholder" }` |
 
 **Estructura final (para referencia):**
 ```
@@ -98,42 +50,35 @@ Cada secreto contendrá pares como:
 
 ## IAM Role: ECS Task Execution (`ecsTaskExecutionRole-sphinx`)
 
-```
-AWS Console → IAM → Roles → Create role
+| Parámetro | Valor |
+|-----------|-------|
+| Trusted entity | AWS Service → Elastic Container Service Task |
+| Role name | `ecsTaskExecutionRole-sphinx` |
+| Managed policies | `AmazonECSTaskExecutionRolePolicy` |
+| Inline policy | `SphinxSecretsAccess` |
 
-  Trusted entity type: AWS service
-  Use case: Elastic Container Service → Elastic Container Service Task
-  → Next
+**Inline policy `SphinxSecretsAccess`:**
 
-  Permissions policies (buscar y seleccionar):
-    ☑ AmazonECSTaskExecutionRolePolicy
-  → Next
-
-  Role name: ecsTaskExecutionRole-sphinx
-  Description: Execution role for Sphinx ECS tasks (ECR pull, CW Logs, Secrets Manager)
-  → Create role
-```
-
-**Agregar permisos para Secrets Manager + KMS (inline policy):**
-
-```
-Role ecsTaskExecutionRole-sphinx → Permissions → Add permissions → Create inline policy
-
-  Service: Secrets Manager
-  Actions: GetSecretValue
-  Resources: All resources (o restringir a arn:aws:secretsmanager:*:*:secret:sphinx/*)
-  → Next
-
-  Service: KMS
-  Actions: Decrypt
-  Resources: 
-    - arn:aws:kms:us-east-1:<account>:key/<key-id-dev>
-    - arn:aws:kms:us-east-1:<account>:key/<key-id-staging>
-    - arn:aws:kms:us-east-1:<account>:key/<key-id-prod>
-  → Next
-
-  Policy name: SphinxSecretsAccess
-  → Create policy
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:*:*:secret:sphinx/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": [
+        "arn:aws:kms:us-east-1:<account>:key/<key-id-dev>",
+        "arn:aws:kms:us-east-1:<account>:key/<key-id-staging>",
+        "arn:aws:kms:us-east-1:<account>:key/<key-id-prod>"
+      ]
+    }
+  ]
+}
 ```
 
 **Verificación:**
@@ -144,77 +89,54 @@ Role ecsTaskExecutionRole-sphinx → Permissions → Add permissions → Create 
 
 ## IAM Instance Profile: EC2 ASG (`ec2InstanceProfile-sphinx`)
 
-```
-AWS Console → IAM → Roles → Create role
+| Parámetro | Valor |
+|-----------|-------|
+| Trusted entity | AWS Service → EC2 |
+| Role name | `ec2InstanceProfile-sphinx` |
+| Managed policies | `AmazonEC2ContainerServiceforEC2Role`, `CloudWatchAgentServerPolicy`, `AmazonSSMManagedInstanceCore` |
+| Inline policy | `SphinxEC2InstancePermissions` |
 
-  Trusted entity type: AWS service
-  Use case: EC2
-  → Next
+**Instance Profile:**
+| Parámetro | Valor |
+|-----------|-------|
+| Name | `ec2InstanceProfile-sphinx` |
+| Role adjunto | `ec2InstanceProfile-sphinx` |
 
-  Permissions policies (buscar y seleccionar):
-    ☑ AmazonEC2ContainerServiceforEC2Role
-    ☑ CloudWatchAgentServerPolicy
-    ☑ AmazonSSMManagedInstanceCore
-  → Next
+**Inline policy `SphinxEC2InstancePermissions`:**
 
-  Role name: ec2InstanceProfile-sphinx
-  Description: Instance profile for Sphinx EC2 ASG instances (ECR, CW, SSM, ECS agent)
-  → Create role
-```
-
-**Crear Instance Profile:**
-
-```
-IAM → Roles → ec2InstanceProfile-sphinx → Permissions → (ver policies adjuntas)
-IAM → Instance profiles → Create instance profile
-
-  Name: ec2InstanceProfile-sphinx
-  → Next
-  Add role: ec2InstanceProfile-sphinx
-  → Create instance profile
-```
-
-**Agregar permisos ECR + Secrets Manager + KMS (inline policy en el role):**
-
-```
-Role ec2InstanceProfile-sphinx → Permissions → Add permissions → Create inline policy
-
-  JSON:
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "ecr:GetAuthorizationToken",
-          "ecr:BatchGetImage",
-          "ecr:GetDownloadUrlForLayer"
-        ],
-        "Resource": "arn:aws:ecr:us-east-1:<account>:repository/sphinx/*"
-      },
-      {
-        "Effect": "Allow",
-        "Action": [
-          "secretsmanager:GetSecretValue"
-        ],
-        "Resource": "arn:aws:secretsmanager:us-east-1:<account>:secret:sphinx/*"
-      },
-      {
-        "Effect": "Allow",
-        "Action": [
-          "kms:Decrypt"
-        ],
-        "Resource": [
-          "arn:aws:kms:us-east-1:<account>:key/<key-id-dev>",
-          "arn:aws:kms:us-east-1:<account>:key/<key-id-staging>",
-          "arn:aws:kms:us-east-1:<account>:key/<key-id-prod>"
-        ]
-      }
-    ]
-  }
-
-  Policy name: SphinxEC2InstancePermissions
-  → Create policy
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:<account>:repository/sphinx/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-east-1:<account>:secret:sphinx/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": [
+        "arn:aws:kms:us-east-1:<account>:key/<key-id-dev>",
+        "arn:aws:kms:us-east-1:<account>:key/<key-id-staging>",
+        "arn:aws:kms:us-east-1:<account>:key/<key-id-prod>"
+      ]
+    }
+  ]
+}
 ```
 
 **Verificación:**
@@ -225,264 +147,68 @@ Role ec2InstanceProfile-sphinx → Permissions → Add permissions → Create in
 
 ## Security Groups (5 SGs)
 
-### SG ALB (`sphinx-alb-sg`)
+### SG: ALB (`sphinx-alb-sg`)
 
-```
-AWS Console → EC2 → Security Groups → Create security group
+| Dirección | Tipo | Puerto | Origen/Destino | Descripción |
+|-----------|------|--------|----------------|-------------|
+| Inbound | HTTP | 80 | `0.0.0.0/0` | Redirect a HTTPS |
+| Inbound | HTTPS | 443 | `0.0.0.0/0` | HTTPS de usuarios/CloudFront |
+| Outbound | All traffic | All | `0.0.0.0/0` | Default |
 
-  Security group name: sphinx-alb-sg
-  Description: ALB public access (HTTP/HTTPS from internet)
-  VPC: sphinx-prod
-  → Create security group
-```
+### SG: ECS (`sphinx-ecs-sg`)
 
-```
-Inbound rules → Edit inbound rules → Add rule (×2)
+| Dirección | Tipo | Puerto | Origen/Destino | Descripción |
+|-----------|------|--------|----------------|-------------|
+| Inbound | Custom TCP | 8042 | `sphinx-alb-sg` | ReverseProxy from ALB |
+| Inbound | Custom TCP | 8080 | `sphinx-alb-sg` | Services on 8080 from ALB |
+| Inbound | Custom TCP | 3000 | `sphinx-alb-sg` | UI on 3000 from ALB |
+| Inbound | Custom TCP | 80 | `sphinx-alb-sg` | PEP from ALB |
+| Inbound | Custom TCP | 8080 | `sphinx-ecs-sg` (self) | Service-to-service 8080 |
+| Inbound | Custom TCP | 8042 | `sphinx-ecs-sg` (self) | Service-to-service 8042 |
+| Inbound | Custom TCP | 3000 | `sphinx-ecs-sg` (self) | Service-to-service 3000 |
+| Inbound | Custom TCP | 80 | `sphinx-ecs-sg` (self) | Service-to-service 80 |
+| Outbound | HTTPS | 443 | `sphinx-vpc-endpoints-sg` | To VPC endpoints (ECR, CW, SM, X-Ray) |
 
-  Rule 1:
-    Type: HTTP (80)
-    Source: Anywhere-IPv4 (0.0.0.0/0)
-    Description: HTTP redirect to HTTPS
+### SG: EC2 (`sphinx-ec2-sg`)
 
-  Rule 2:
-    Type: HTTPS (443)
-    Source: Anywhere-IPv4 (0.0.0.0/0)
-    Description: HTTPS from users / CloudFront
+| Dirección | Tipo | Puerto | Origen/Destino | Descripción |
+|-----------|------|--------|----------------|-------------|
+| Inbound | Custom TCP | 8080 | `sphinx-alb-sg` | Services on 8080 from ALB |
+| Inbound | Custom TCP | 80 | `sphinx-alb-sg` | nginx/OpenResty from ALB |
+| Inbound | Custom TCP | 8080 | `sphinx-ec2-sg` (self) | EC2-to-EC2 8080 |
+| Inbound | Custom TCP | 80 | `sphinx-ec2-sg` (self) | EC2-to-EC2 80 |
+| Outbound | HTTPS | 443 | `sphinx-vpc-endpoints-sg` | To VPC endpoints |
+| Outbound | All traffic | All | `sphinx-ecs-sg` | To ECS services |
 
-  → Save rules
-```
+> NO agregar regla SSH (puerto 22). SSM usa outbound a endpoints, no inbound SSH.
 
-**Outbound rules:** (default: All traffic 0.0.0.0/0 — dejar así)
+### SG: DB (`sphinx-db-sg`) — futuro RDS/ElastiCache
 
----
+| Dirección | Tipo | Puerto | Origen/Destino | Descripción |
+|-----------|------|--------|----------------|-------------|
+| Inbound | PostgreSQL | 5432 | `sphinx-ecs-sg` | RDS from ECS tasks |
+| Inbound | PostgreSQL | 5432 | `sphinx-ec2-sg` | RDS from EC2 instances |
+| Inbound | Custom TCP | 6379 | `sphinx-ecs-sg` | ElastiCache from ECS |
+| Inbound | Custom TCP | 6379 | `sphinx-ec2-sg` | ElastiCache from EC2 |
 
-### SG ECS (`sphinx-ecs-sg`)
+### SG: VPC Endpoints (`sphinx-vpc-endpoints-sg`) — actualizar
 
-```
-AWS Console → EC2 → Security Groups → Create security group
+| Dirección | Tipo | Puerto | Origen/Destino | Descripción |
+|-----------|------|--------|----------------|-------------|
+| Inbound | HTTPS | 443 | `sphinx-ecs-sg` | From ECS tasks |
+| Inbound | HTTPS | 443 | `sphinx-ec2-sg` | From EC2 instances |
 
-  Security group name: sphinx-ecs-sg
-  Description: ECS Fargate tasks (private subnets)
-  VPC: sphinx-prod
-  → Create security group
-```
-
-```
-Inbound rules → Edit inbound rules → Add rule (×4)
-
-  Rule 1:
-    Type: Custom TCP
-    Port range: 8042
-    Source: Custom → sphinx-alb-sg (seleccionar el SG)
-    Description: ReverseProxy from ALB
-
-  Rule 2:
-    Type: Custom TCP
-    Port range: 8080
-    Source: Custom → sphinx-alb-sg
-    Description: Services on 8080 from ALB
-
-  Rule 3:
-    Type: Custom TCP
-    Port range: 3000
-    Source: Custom → sphinx-alb-sg
-    Description: UI on 3000 from ALB
-
-  Rule 4:
-    Type: Custom TCP
-    Port range: 80
-    Source: Custom → sphinx-alb-sg
-    Description: PEP from ALB
-
-  → Save rules
-```
-
-**Reglas adicionales para comunicación interna (entre servicios):**
-```
-Inbound rules → Edit inbound rules → Add rule (×4)
-
-  Rule 5:
-    Type: Custom TCP
-    Port range: 8080
-    Source: Custom → sphinx-ecs-sg (self-reference)
-    Description: Service-to-service 8080
-
-  Rule 6:
-    Type: Custom TCP
-    Port range: 8042
-    Source: Custom → sphinx-ecs-sg
-    Description: Service-to-service 8042
-
-  Rule 7:
-    Type: Custom TCP
-    Port range: 3000
-    Source: Custom → sphinx-ecs-sg
-    Description: Service-to-service 3000
-
-  Rule 8:
-    Type: Custom TCP
-    Port range: 80
-    Source: Custom → sphinx-ecs-sg
-    Description: Service-to-service 80
-
-  → Save rules
-```
-
-**Outbound rules → Edit outbound rules → Add rule:**
-```
-  Type: HTTPS (443)
-  Destination: Custom → sphinx-vpc-endpoints-sg
-  Description: To VPC endpoints (ECR, CW, SM, X-Ray)
-  → Save rules
-```
-
----
-
-### SG EC2 (`sphinx-ec2-sg`)
-
-```
-AWS Console → EC2 → Security Groups → Create security group
-
-  Security group name: sphinx-ec2-sg
-  Description: EC2 ASG instances (private subnets)
-  VPC: sphinx-prod
-  → Create security group
-```
-
-```
-Inbound rules → Edit inbound rules → Add rule (×2)
-
-  Rule 1:
-    Type: Custom TCP
-    Port range: 8080
-    Source: Custom → sphinx-alb-sg
-    Description: Services on 8080 from ALB
-
-  Rule 2:
-    Type: Custom TCP
-    Port range: 80
-    Source: Custom → sphinx-alb-sg
-    Description: nginx/OpenResty from ALB
-
-  → Save rules
-```
-
-**Comunicación interna (self-reference):**
-```
-Inbound rules → Edit inbound rules → Add rule (×2)
-
-  Rule 3:
-    Type: Custom TCP
-    Port range: 8080
-    Source: Custom → sphinx-ec2-sg
-    Description: EC2-to-EC2 8080
-
-  Rule 4:
-    Type: Custom TCP
-    Port range: 80
-    Source: Custom → sphinx-ec2-sg
-    Description: EC2-to-EC2 80
-
-  → Save rules
-```
-
-**Acceso SSM (para debugging sin SSH):**
-```
-Inbound rules → NO agregar regla SSH (puerto 22)
-# SSM usa outbound a endpoints, no inbound SSH
-```
-
-**Outbound rules → Edit outbound rules → Add rule (×2):**
-```
-  Rule 1:
-    Type: HTTPS (443)
-    Destination: Custom → sphinx-vpc-endpoints-sg
-    Description: To VPC endpoints
-
-  Rule 2:
-    Type: All traffic
-    Destination: Custom → sphinx-ecs-sg
-    Description: To ECS services
-  → Save rules
-```
-
----
-
-### SG DB (`sphinx-db-sg`) — para futuro RDS/ElastiCache
-
-```
-AWS Console → EC2 → Security Groups → Create security group
-
-  Security group name: sphinx-db-sg
-  Description: Future RDS PostgreSQL / ElastiCache Redis (protected subnets)
-  VPC: sphinx-prod
-  → Create security group
-```
-
-```
-Inbound rules → Edit inbound rules → Add rule (×4)
-
-  Rule 1:
-    Type: PostgreSQL (5432)
-    Source: Custom → sphinx-ecs-sg
-    Description: RDS from ECS tasks
-
-  Rule 2:
-    Type: PostgreSQL (5432)
-    Source: Custom → sphinx-ec2-sg
-    Description: RDS from EC2 instances
-
-  Rule 3:
-    Type: Custom TCP
-    Port range: 6379
-    Source: Custom → sphinx-ecs-sg
-    Description: ElastiCache from ECS
-
-  Rule 4:
-    Type: Custom TCP
-    Port range: 6379
-    Source: Custom → sphinx-ec2-sg
-    Description: ElastiCache from EC2
-
-  → Save rules
-```
-
----
-
-### SG VPC Endpoints (`sphinx-vpc-endpoints-sg`) — actualizar regla temporal
-
-```
-AWS Console → EC2 → Security Groups → sphinx-vpc-endpoints-sg → Inbound rules → Edit inbound rules
-```
-
-**Eliminar regla temporal `10.0.0.0/16` y agregar:**
-```
-  Rule 1:
-    Type: HTTPS (443)
-    Source: Custom → sphinx-ecs-sg
-    Description: From ECS tasks
-
-  Rule 2:
-    Type: HTTPS (443)
-    Source: Custom → sphinx-ec2-sg
-    Description: From EC2 instances
-
-  → Save rules
-```
+> Eliminar regla temporal `10.0.0.0/16`.
 
 ---
 
 ## Actualizar KMS Key Policies (agregar roles como users)
 
-```
-AWS Console → KMS → Customer managed keys → alias/sphinx-dev → Key policy → Edit
-```
-
-**En "Key users" agregar:**
-- `ecsTaskExecutionRole-sphinx`
-- `ec2InstanceProfile-sphinx`
-
-**Repetir para `alias/sphinx-staging` y `alias/sphinx-prod`**
+| CMK | Key users a agregar |
+|-----|---------------------|
+| `alias/sphinx-dev` | `ecsTaskExecutionRole-sphinx`, `ec2InstanceProfile-sphinx` |
+| `alias/sphinx-staging` | `ecsTaskExecutionRole-sphinx`, `ec2InstanceProfile-sphinx` |
+| `alias/sphinx-prod` | `ecsTaskExecutionRole-sphinx`, `ec2InstanceProfile-sphinx` |
 
 ---
 

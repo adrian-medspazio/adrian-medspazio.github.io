@@ -6,253 +6,136 @@ title: VPC y Networking
 
 > **Contexto**: Usamos la VPC existente `agoracare-vpc` (vpc-021432a1f69b421c6) en región `sa-east-1`, CIDR `10.0.0.0/16`, con 4 subnets existentes (2 public, 2 private). Faltan: 2 protected subnets, 2 NAT GWs, RT protegida, actualizar RTs privadas, VPC Endpoints, Flow Logs.
 
-**Servicio usado:** VPC → Your VPCs → `agoracare-vpc` (vpc-021432a1f69b421c6)
-
 ---
 
 ### 1.1 — Verificar VPC y DNS (ya habilitados ✅)
 
-```
-AWS Console → VPC → Your VPCs → agoracare-vpc (vpc-021432a1f69b421c6) → Details
-  → Verificar: CIDR `10.0.0.0/16`, State `Available`, Owner `982759206940`
-```
-
-```
-Actions → Edit DNS resolution → Enable (ya está ✅)
-Actions → Edit DNS hostnames → Enable (ya está ✅)
-```
+| Parámetro | Valor |
+|-----------|-------|
+| VPC ID | `agoracare-vpc` (vpc-021432a1f69b421c6) |
+| CIDR | `10.0.0.0/16` |
+| Región | `sa-east-1` |
+| State | `Available` |
+| Owner | `982759206940` |
+| DNS resolution | ✅ habilitado |
+| DNS hostnames | ✅ habilitado |
 
 ---
 
 ### 1.2 — Habilitar Auto-assign IPv4 en subnets públicas
 
-```
-AWS Console → VPC → Subnets → Filter by VPC: agoracare-vpc
-→ Select agoracare-subnet-public1-sa-east-1a (subnet-0f0d14e5e3f020d9c)
-  → Actions → Modify auto-assign IP settings → ✅ Enable → Save
-→ Select agoracare-subnet-public2-sa-east-1b (subnet-005c08244dd6264b1)
-  → Actions → Modify auto-assign IP settings → ✅ Enable → Save
-```
+| Subnet | ID | AZ | Acción |
+|--------|----|----|--------|
+| `agoracare-subnet-public1-sa-east-1a` | `subnet-0f0d14e5e3f020d9c` | sa-east-1a | ✅ Habilitar |
+| `agoracare-subnet-public2-sa-east-1b` | `subnet-005c08244dd6264b1` | sa-east-1b | ✅ Habilitar |
 
-**Verificación:**
-- Subnets → Filter by VPC `agoracare-vpc` → 2 public subnets con "Auto-assign public IPv4: Yes"
+**Verificación:** 2 public subnets con "Auto-assign public IPv4: Yes"
 
 ---
 
-### 1.3 — Crear 2 Protected Subnets (nuevas)
+### 1.3 — Crear 2 Protected Subnets
 
-```
-AWS Console → VPC → Subnets → Create subnet (×2)
+| Nombre | AZ | CIDR |
+|--------|----|------|
+| `agoracare-subnet-protected1-sa-east-1a` | sa-east-1a (sae1-az1) | `10.0.32.0/20` |
+| `agoracare-subnet-protected2-sa-east-1b` | sa-east-1b (sae1-az2) | `10.0.48.0/20` |
 
-  Subnet 1 (AZ sa-east-1a):
-    VPC: agoracare-vpc (vpc-021432a1f69b421c6)
-    Availability Zone: sa-east-1a (sae1-az1)
-    Name tag: agoracare-subnet-protected1-sa-east-1a
-    IPv4 CIDR block: 10.0.32.0/20
-    → Create subnet
+> Auto-assign IPv4: ❌ No (default)
 
-  Subnet 2 (AZ sa-east-1b):
-    VPC: agoracare-vpc
-    Availability Zone: sa-east-1b (sae1-az2)
-    Name tag: agoracare-subnet-protected2-sa-east-1b
-    IPv4 CIDR block: 10.0.48.0/20
-    → Create subnet
-```
-
-> **Auto-assign IPv4:** ❌ No (ya por defecto)
-
-**Verificación:**
-- Subnets → Filter by VPC `agoracare-vpc` → 6 subnets total (2 public, 2 private, 2 protected)
+**Verificación:** 6 subnets total (2 public, 2 private, 2 protected)
 
 ---
 
-### 1.4 — Crear Route Table Protegida (nueva)
+### 1.4 — Route Table: Protegida
 
-```
-AWS Console → VPC → Route Tables → Create route table
-  Name: agoracare-rtb-protected
-  VPC: agoracare-vpc (vpc-021432a1f69b421c6)
-  → Create route table
-```
-
-> **NO agregar ruta `0.0.0.0/0`** — solo queda la ruta `local`.
-
-```
-Route Tables → agoracare-rtb-protected → Subnet associations → Edit subnet associations
-  ✅ agoracare-subnet-protected1-sa-east-1a
-  ✅ agoracare-subnet-protected2-sa-east-1b
-  → Save associations
-```
+| Parámetro | Valor |
+|-----------|-------|
+| Nombre | `agoracare-rtb-protected` |
+| VPC | `agoracare-vpc` (vpc-021432a1f69b421c6) |
+| Rutas | Solo `local` (NO agregar `0.0.0.0/0`) |
+| Asociaciones | `agoracare-subnet-protected1-sa-east-1a` ✅, `agoracare-subnet-protected2-sa-east-1b` ✅ |
 
 ---
 
-### 1.5 — Crear 2 NAT Gateways (en subnets públicas)
+### 1.5 — NAT Gateways (crear en subnets públicas)
 
-**Primero: Crear 2 Elastic IPs (EIPs) — obligatorio antes de NAT Gateway**
+**Primero: 2 Elastic IPs**
 
-```
-AWS Console → VPC → Elastic IPs → Allocate Elastic IP address (×2)
+| Nombre | Network border group |
+|--------|---------------------|
+| `agoracare-nat-eip-sa-east-1a` | sa-east-1 |
+| `agoracare-nat-eip-sa-east-1b` | sa-east-1 |
 
-  EIP 1:
-    Name: agoracare-nat-eip-sa-east-1a
-    Network border group: sa-east-1
-    → Allocate
+**Luego: 2 NAT Gateways**
 
-  EIP 2:
-    Name: agoracare-nat-eip-sa-east-1b
-    Network border group: sa-east-1
-    → Allocate
-```
+| Nombre | Subnet | AZ | Connectivity | EIP |
+|--------|--------|----|--------------|-----|
+| `agoracare-nat-sa-east-1a` | `agoracare-subnet-public1-sa-east-1a` (subnet-0f0d14e5e3f020d9c) | sa-east-1a | Public | `agoracare-nat-eip-sa-east-1a` |
+| `agoracare-nat-sa-east-1b` | `agoracare-subnet-public2-sa-east-1b` (subnet-005c08244dd6264b1) | sa-east-1b | Public | `agoracare-nat-eip-sa-east-1b` |
 
-**Ahora: Crear 2 NAT Gateways asignando cada EIP**
-
-```
-AWS Console → VPC → NAT Gateways → Create NAT Gateway (×2)
-
-  NAT Gateway 1:
-    Name: agoracare-nat-sa-east-1a
-    Subnet: agoracare-subnet-public1-sa-east-1a (subnet-0f0d14e5e3f020d9c)
-    Connectivity type: Public
-    Elastic IP allocation ID: (seleccionar agoracare-nat-eip-sa-east-1a)
-    → Create NAT Gateway
-
-  NAT Gateway 2:
-    Name: agoracare-nat-sa-east-1b
-    Subnet: agoracare-subnet-public2-sa-east-1b (subnet-005c08244dd6264b1)
-    Connectivity type: Public
-    Elastic IP allocation ID: (seleccionar agoracare-nat-eip-sa-east-1b)
-    → Create NAT Gateway
-```
-
-> **Esperar estado `Available`** (2-3 min). Anotar IDs:
-> - `nat-xxx` (sa-east-1a) con EIP `x.x.x.x`
-> - `nat-xxx` (sa-east-1b) con EIP `x.x.x.x`
+> Esperar estado `Available` (2-3 min). Anotar IDs: `nat-xxx` (a) con EIP `x.x.x.x`, `nat-xxx` (b) con EIP `x.x.x.x`
 
 ---
 
-### 1.6 — Actualizar RTs privadas con rutas a NAT
+### 1.6 — Actualizar RTs privadas con rutas a NAT GW
 
-**RT Private 1 (sa-east-1a):**
-```
-Route Tables → agoracare-rtb-private1-sa-east-1a (rtb-040730bce4d7c4e9a)
-→ Routes → Edit routes → Add route
-  Destination: 0.0.0.0/0
-  Target: NAT Gateway → agoracare-nat-sa-east-1a
-  → Save routes
-```
+| Route Table | ID | Ruta a agregar | Target |
+|-------------|----|----------------|--------|
+| `agoracare-rtb-private1-sa-east-1a` | `rtb-040730bce4d7c4e9a` | `0.0.0.0/0` | NAT Gateway → `agoracare-nat-sa-east-1a` |
+| `agoracare-rtb-private2-sa-east-1b` | `rtb-07c149f8da4cbc5ab` | `0.0.0.0/0` | NAT Gateway → `agoracare-nat-sa-east-1b` |
 
-**RT Private 2 (sa-east-1b):**
-```
-Route Tables → agoracare-rtb-private2-sa-east-1b (rtb-07c149f8da4cbc5ab)
-→ Routes → Edit routes → Add route
-  Destination: 0.0.0.0/0
-  Target: NAT Gateway → agoracare-nat-sa-east-1b
-  → Save routes
-```
-
-**Verificación:**
-- Cada RT privada tiene ruta `0.0.0.0/0 → su NAT GW` + ruta `local`
+**Verificación:** Cada RT privada tiene ruta `0.0.0.0/0 → su NAT GW` + ruta `local`
 
 ---
 
 ### 1.7 — VPC Endpoints (7 endpoints, región **sa-east-1**)
 
-#### Primero: Security Group para Interface Endpoints
+#### Security Group para Interface Endpoints
 
-```
-AWS Console → VPC → Security Groups → Create security group
-  Security group name: agoracare-vpc-endpoints-sg
-  Description: SG for VPC Interface Endpoints
-  VPC: agoracare-vpc (vpc-021432a1f69b421c6)
-  → Create security group
-```
+| Parámetro | Valor |
+|-----------|-------|
+| Nombre | `agoracare-vpc-endpoints-sg` |
+| Descripción | SG for VPC Interface Endpoints |
+| VPC | `agoracare-vpc` (vpc-021432a1f69b421c6) |
+| Inbound | HTTPS (443) → Source: `10.0.0.0/16` (temporal, restringir en security.md) |
 
-```
-Inbound rules → Edit inbound rules → Add rule
-  Type: HTTPS (443)
-  Source: Custom → 10.0.0.0/16  (temporal, restringir en security.md)
-  → Save rules
-```
+#### Gateway Endpoints (2) — en TODAS las 5 RTs
 
-#### Gateway Endpoints (2) — en TODAS las RTs (5):
+| Nombre | Servicio | Tipo | Route Tables | Policy |
+|--------|----------|------|-------------|--------|
+| `agoracare-s3-endpoint` | `com.amazonaws.sa-east-1.s3` | Gateway | ✅ 5 RTs (public, private1-a, private2-b, protected, main) | Full Access |
+| `agoracare-dynamodb-endpoint` | `com.amazonaws.sa-east-1.dynamodb` | Gateway | ✅ 5 RTs | Full Access |
 
-```
-AWS Console → VPC → Endpoints → Create Endpoint (×2)
+#### Interface Endpoints (6) — en 2 subnets privadas
 
-  Endpoint 1:
-    Name tag: agoracare-s3-endpoint
-    Service category: AWS services
-    Service: com.amazonaws.sa-east-1.s3 (Type: Gateway)
-    VPC: agoracare-vpc
-    Route tables: ✅ agoracare-rtb-public (rtb-0aa1fcde940580eae), ✅ agoracare-rtb-private1-sa-east-1a (rtb-040730bce4d7c4e9a), ✅ agoracare-rtb-private2-sa-east-1b (rtb-07c149f8da4cbc5ab), ✅ agoracare-rtb-protected (nueva), ✅ rtb-00692f2b0a9ab1b5a (main)
-    Policy: Full Access
-    → Create endpoint
-
-  Endpoint 2:
-    Name tag: agoracare-dynamodb-endpoint
-    Service: com.amazonaws.sa-east-1.dynamodb (Gateway)
-    VPC: agoracare-vpc
-    Route tables: ✅ TODAS las 5
-    Policy: Full Access
-    → Create endpoint
-```
-
-#### Interface Endpoints (6) — en subnets PRIVADAS (2 AZs):
-
-```
-AWS Console → VPC → Endpoints → Create Endpoint (×6)
-
-  Para CADA uno:
-    VPC: agoracare-vpc
-    Subnets: ✅ agoracare-subnet-private1-sa-east-1a (subnet-009db096ef7cc5c52), ✅ agoracare-subnet-private2-sa-east-1b (subnet-09e78a1b1c4a3e4df)
-    Security group: agoracare-vpc-endpoints-sg
-    Private DNS name: Enable
-
-  1. Name: agoracare-ecr-api-endpoint
-     Service: com.amazonaws.sa-east-1.ecr.api (Interface)
-
-  2. Name: agoracare-ecr-dkr-endpoint
-     Service: com.amazonaws.sa-east-1.ecr.dkr (Interface)
-
-  3. Name: agoracare-ecs-endpoint
-     Service: com.amazonaws.sa-east-1.ecs (Interface)
-
-  4. Name: agoracare-cloudwatch-endpoint
-     Service: com.amazonaws.sa-east-1.logs (Interface)
-
-  5. Name: agoracare-secretsmanager-endpoint
-     Service: com.amazonaws.sa-east-1.secretsmanager (Interface)
-
-  6. Name: agoracare-xray-endpoint
-     Service: com.amazonaws.sa-east-1.xray (Interface)
-```
+| Nombre | Servicio | Subnets | SG | Private DNS |
+|--------|----------|---------|----|-------------|
+| `agoracare-ecr-api-endpoint` | `com.amazonaws.sa-east-1.ecr.api` | ✅ private1-a, ✅ private2-b | `agoracare-vpc-endpoints-sg` | Enable |
+| `agoracare-ecr-dkr-endpoint` | `com.amazonaws.sa-east-1.ecr.dkr` | ✅ private1-a, ✅ private2-b | ↑ | Enable |
+| `agoracare-ecs-endpoint` | `com.amazonaws.sa-east-1.ecs` | ✅ private1-a, ✅ private2-b | ↑ | Enable |
+| `agoracare-cloudwatch-endpoint` | `com.amazonaws.sa-east-1.logs` | ✅ private1-a, ✅ private2-b | ↑ | Enable |
+| `agoracare-secretsmanager-endpoint` | `com.amazonaws.sa-east-1.secretsmanager` | ✅ private1-a, ✅ private2-b | ↑ | Enable |
+| `agoracare-xray-endpoint` | `com.amazonaws.sa-east-1.xray` | ✅ private1-a, ✅ private2-b | ↑ | Enable |
 
 ---
 
 ### 1.8 — Flow Logs
 
-```
-AWS Console → VPC → Your VPCs → agoracare-vpc → Flow logs → Create flow log
-  Filter: All
-  Destination: Send to CloudWatch Logs
-  Log group: /aws/vpc/agoracare-vpc/flowlogs
-  IAM role: Create new role (flowlogs-role) o usar existente
-  Retention setting: 30 days
-  → Create flow log
-```
+| Parámetro | Valor |
+|-----------|-------|
+| Filter | All |
+| Destination | CloudWatch Logs |
+| Log group | `/aws/vpc/agoracare-vpc/flowlogs` |
+| IAM role | Crear nuevo (`flowlogs-role`) o usar existente |
+| Retention | 30 days |
 
-**Verificación (en 5-10 min):**
-- CloudWatch → Log groups → `/aws/vpc/agoracare-vpc/flowlogs` → Debe tener log streams
+**Verificación (5-10 min):** CloudWatch → Log groups → `/aws/vpc/agoracare-vpc/flowlogs` debe tener log streams
 
 ---
 
-### 1.9 — DNS (verificar ✅ ya habilitado)
+### 1.9 — DNS
 
-```
-VPC → agoracare-vpc → Actions
-  Edit DNS resolution → Enable (ya está ✅)
-  Edit DNS hostnames → Enable (ya está ✅)
-```
+✅ Ya verificado en sección 1.1 (DNS resolution + DNS hostnames habilitados)
 
 ---
 
@@ -268,7 +151,7 @@ VPC → agoracare-vpc → Actions
 | **IGW** | `igw-0034bb77004e8f88b` | attached |
 | **Main RT** | `rtb-00692f2b0a9ab1b5a` | local only |
 
-### Subnets (6 total tras crear 2 protected)
+### Subnets (6 total)
 
 | Nombre | ID Real | CIDR | AZ | RT Asociada | Auto-assign IPv4 |
 |--------|---------|------|-----|-------------|------------------|
@@ -282,7 +165,7 @@ VPC → agoracare-vpc → Actions
 ### Route Tables (5 total)
 
 | Nombre | ID Real | Rutas | Subnets asociadas |
-|------|---------|-------|-------------------|
+|--------|---------|-------|-------------------|
 | Main | `rtb-00692f2b0a9ab1b5a` | local only | (ninguna) |
 | agoracare-rtb-public | `rtb-0aa1fcde940580eae` | `0.0.0.0/0 → igw-0034bb77004e8f88b` | 2 public |
 | agoracare-rtb-private1-sa-east-1a | `rtb-040730bce4d7c4e9a` | `0.0.0.0/0 → NAT GW a` + local | private1-a + protected1-a |
@@ -292,7 +175,7 @@ VPC → agoracare-vpc → Actions
 ### NAT Gateways (2 nuevos)
 
 | Nombre | ID Real | Subnet | AZ | EIP |
-|------|---------|--------|-----|-----|
+|--------|---------|--------|-----|-----|
 | **agoracare-nat-sa-east-1a** (nueva) | `nat-xxx` | subnet-0f0d14e5e3f020d9c | sa-east-1a | `x.x.x.x` |
 | **agoracare-nat-sa-east-1b** (nueva) | `nat-xxx` | subnet-005c08244dd6264b1 | sa-east-1b | `x.x.x.x` |
 

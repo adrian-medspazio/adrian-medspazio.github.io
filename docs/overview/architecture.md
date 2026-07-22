@@ -71,50 +71,6 @@ ALB (Application Load Balancer) ─── HTTPS 443 / HTTP 80 (redirect)
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-## Conceptos Previos
-
-### ¿Qué es una VPC?
-Una **VPC (Virtual Private Cloud)** es la red virtual aislada donde viven todos los recursos de AWS. Sin VPC no hay red, y sin red los servicios no pueden comunicarse.
-
-### ¿Qué es un CIDR?
-Un **CIDR** (Classless Inter-Domain Routing) define un rango de direcciones IP.
-
-| CIDR | IPs disponibles | Ejemplo de rango |
-|------|-----------------|------------------|
-| `/16` | 65,536 | `10.0.0.0` – `10.0.255.255` |
-| `/20` | 4,096 | `10.0.0.0` – `10.0.15.255` |
-| `/24` | 256 | `10.0.10.0` – `10.0.10.255` |
-
-Usamos **`10.0.0.0/16`** para la VPC principal, dividiendo en `/24` por subnet (256 IPs cada una) × 9 subnets = 2,304 IPs usadas, dejando amplio margen.
-
-### ¿Qué es un Security Group?
-Un **Security Group** es el firewall virtual de cada recurso. Controla qué tráfico **entra** (inbound) y qué tráfico **sale** (outbound). Por defecto, todo está bloqueado.
-
-### ¿Qué es una Subnet?
-Una **Subnet** es una subdivisión de la VPC en una AZ específica. Los recursos en la misma subnet se comunican directamente.
-
-### ECS Fargate vs EC2
-- **Fargate**: Serverless. AWS maneja el servidor subyacente. Pagas solo por vCPU/GB que el contenedor reserva.
-- **EC2 ASG**: Tú administras las instancias (Launch Template, user-data, AMIs). Necesario para GPU, drivers NVIDIA, binarios nativos pesados (tesseract, poppler, gdcm), OpenResty/Lua.
-
-### ECR
-**Elastic Container Registry** = Docker Hub de AWS. Integrado con ECS: las tasks bajan la imagen directo sin credenciales extra.
-
-### Cloud Map
-**Service Discovery** DNS privado (`sphinx.local`). Permite que los servicios se encuentren por nombre (`auth.sphinx.local`) sin IPs hardcodeadas. Nginx/OpenResty usan `resolver 169.254.169.253` (DNS de la VPC).
-
-### Secrets Manager vs Parameter Store
-- **Secrets Manager**: Rotación automática, versionado, KMS por secret, costo por secret/mes. **Producción**.
-- **Parameter Store (SecureString)**: Gratis hasta 10k params, sin rotación nativa. **Dev/Staging** o costo cero.
-
-### ALB + Target Groups
-- **ALB**: L7, path-based routing (`/api/service/*` → TG del servicio).
-- **Target Group IP mode**: Para Fargate (ENI por task). **Instance mode**: Para EC2 ASG.
-
-### CloudFront + ACM
-- **ACM**: Certificados SSL gratuitos (validación DNS en Route53).
-- **CloudFront**: CDN global, termina TLS, cachea estáticos (1y), HTML no-cache, WAF attached.
-
 ## Resumen de Recursos (se irá completando con valores reales)
 
 | Recurso | Nombre en AWS | Valor Real |
